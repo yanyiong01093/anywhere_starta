@@ -19,7 +19,7 @@ is enabled with command-line flags. This client keeps the same engine but puts t
 | **Where models are stored** | Fixed by the installer prompt | **You choose the folder.** Type a path or open a native folder picker; the default location is pre-filled. Handy for putting a 70 GB model on a second SSD. |
 | **Download progress** | Console output | Progress is shown in the window. When the download finishes the app loads the model by itself and moves on to the main screen — no console window stays open. |
 | **Share on your LAN** | `--host 0.0.0.0 --api-key <secret>` on the command line | A **Share model** card: flip one switch and the app listens on `0.0.0.0:8080`, generates a random API key, and lists every reachable LAN address. |
-| **Share remotely (Tailscale)** | Manual network setup | The same card detects a running Tailscale client and shows the `100.64.0.0/10` peer address, so a machine on another network can use the model through the OpenAI-compatible API. |
+| **Share remotely (Tailscale)** | Manual network setup | The same card detects a running Tailscale client and shows the `100.64.0.0/10` peer address. Tailscale is a **point-to-point direct connection** (WireGuard), so a machine on another network talks to this PC directly through the OpenAI-compatible API — the model traffic does not pass through a third-party server. |
 | **API key handling** | You invent and type it | Generated automatically, shown in a read-only field, with **Copy** and **Regenerate** buttons. Local loopback (`127.0.0.1` / `::1`) stays key-free; every other host must send the key, and the `Host` header is validated to block DNS-rebinding attacks. |
 | **First run** | Console prompts | A graphical wizard. If no model is found on disk it waits in the window for you to pick and download one; if models are found it starts loading them straight away. |
 | **Startup feel** | A console window while 35-55 GB loads | A loading page is shown immediately, then the main window, so the app never looks frozen while the model is being loaded. |
@@ -57,6 +57,8 @@ bind a port. Turning it on:
 Other devices then point their OpenAI-compatible client at `http://<shown-address>:8080/v1`. Requests from
 `127.0.0.1` and `::1` skip the key check so the local chat keeps working; requests from any other host must send
 `Authorization: Bearer <key>`.
+
+Remote sharing is **peer-to-peer**. Tailscale is not a proxy and not a relay service: it builds a point-to-point WireGuard tunnel between the two machines, so the model traffic goes straight from the client to this PC. If a direct path cannot be established, Tailscale falls back to its relay — that is the exception, not the normal path.
 
 ## Download
 
@@ -114,7 +116,7 @@ Upstream Strata is MIT-licensed. This distribution repository only repackages th
 | **模型存放路径** | 由安装程序提问决定 | **可自行选择目录**。既能手动输入路径，也能调用系统原生目录选择器，默认位置已预填。适合把 70 GB 的模型放到第二块 SSD。 |
 | **下载进度** | 控制台输出 | 窗口内显示进度。下载完成后程序自动加载模型并进入主界面，不会一直挂着控制台窗口。 |
 | **局域网共享** | 命令行 `--host 0.0.0.0 --api-key <secret>` | **共享模型**卡片：打开一个开关，服务监听 `0.0.0.0:8080`，自动生成随机 API Key，并列出所有可访问的局域网地址。 |
-| **远程共享（Tailscale）** | 需自行配置网络 | 同一张卡片会探测正在运行的 Tailscale 客户端，并显示 `100.64.0.0/10` 对等地址，其他网络上的机器即可通过 OpenAI 兼容 API 使用该模型。 |
+| **远程共享（Tailscale）** | 需自行配置网络 | 同一张卡片会探测正在运行的 Tailscale 客户端，并显示 `100.64.0.0/10` 对等地址。Tailscale 是**点对点直连**（WireGuard），其他网络上的机器直接与本机通信，通过 OpenAI 兼容 API 使用该模型，模型流量不经过第三方服务器。 |
 | **API Key 处理** | 自己编、自己输 | 自动生成，显示在只读输入框里，带**复制**和**重新生成**按钮。本机回环（`127.0.0.1` / `::1`）免鉴权；其他来源必须携带 Key，同时校验 `Host` 头以防 DNS 重绑定攻击。 |
 | **首次启动** | 控制台问答 | 图形化向导。本机找不到模型时在窗口里等待你选择并下载；找到模型则直接开始加载。 |
 | **启动观感** | 加载 35-55 GB 期间只有一个控制台窗口 | 先立即显示加载进度页，再进入主界面，加载期间程序不会看起来像卡死。 |
@@ -147,6 +149,9 @@ Upstream Strata is MIT-licensed. This distribution repository only repackages th
 
 其他设备把 OpenAI 兼容客户端指向 `http://<显示的地址>:8080/v1` 即可。来自 `127.0.0.1` 和 `::1` 的请求免鉴权，
 保证本机对话不受影响；其他来源必须携带 `Authorization: Bearer <key>`。
+
+远程共享是**点对点直连**。Tailscale 既不是代理也不是中转服务：它在两台机器之间建立点对点 WireGuard 隧道，
+模型流量从客户端直接到本机。只有两端确实无法建立直连时，才会回落到中继，那是例外而非常态。
 
 ## 下载
 
