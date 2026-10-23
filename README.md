@@ -1,118 +1,182 @@
 # Strata Desktop
 
-**[English](#strata-desktop)** · [简体中文](#简体中文)
+[English](#strata-desktop) · [简体中文](#简体中文)
 
-A Windows desktop client for **[Strata](https://github.com/Niko1221/Strata)** — the open-source engine that
-runs a 125-billion-parameter model on a normal gaming PC. The engine stays upstream; this repository ships the
-desktop layer, the Windows installers, and the update feed.
+A Windows desktop client for [Strata](https://github.com/Niko1221/Strata). This repository is the **application-layer
+distribution** channel: every Release carries the update package (`strata-app.zip` + `SHA256.txt`) that installed
+clients download when they check for updates. The engine binary and the model weights are still fetched from the
+upstream official sources by `setup.py`.
 
-## What this build adds
+Upstream Strata is driven from a terminal — `START-HERE.bat` / `./setup.sh` asks questions in a console, and sharing
+is enabled with command-line flags. This client keeps the same engine but puts those steps into a graphical window.
 
-| | Upstream Strata | This desktop build |
+## What this desktop client adds
+
+| | Upstream (command line) | This desktop client |
 | --- | --- | --- |
-| First start | Double-click `START-HERE.bat` and answer the questions in a console window | Double-click `Strata.exe`: a graphical wizard checks the machine, downloads the engine and dependencies, and picks up models already on disk |
-| Everyday start | Run `START-HERE.bat` again, then open `127.0.0.1:8080` in a browser | One double-click: a native window (WebView2) plus a tray icon |
-| While the model loads | Nothing to look at until the browser page is ready | The window opens at once with a loading page: stage, elapsed time, and a Retry button |
-| Launching twice | A second server starts and fights over port 8080 | Single instance: the running window is raised to the front and the second launch exits |
-| Switching models | Run setup again | Tray menu or the About card; the model is swapped in the background, chat history stays |
-| Sharing to phones and other PCs | Set up the port and a key yourself | One switch: binds `0.0.0.0:8080`, generates an API key, lists LAN / VM / Tailscale addresses; local access needs no key |
-| Updates | `UPDATE.bat`, built on git | In-app check → download → SHA-256 verify → overwrite; no git required; engine and Python dependencies update in the same pass |
-| Vision | Asked as a question during setup | Detected from the `mmproj` file and enabled automatically, with VRAM reserved for the encoder |
-| Copying text | Whatever the browser allows | Text selection and a right-click menu (copy, select all) work on every page |
-| Distribution | Source tree and batch files | Installer, portable ZIP and an app-only update package; a portable Python runtime is bundled, so the target PC needs nothing preinstalled |
+| **Interface language** | English only | **Chinese / English.** Follows your system language on first launch and can be switched at any time with the `中 / EN` button. Both the first-run wizard and the main app are fully bilingual. |
+| **Choosing a model** | Answer interactive console questions during `setup.py` | A list of official models is rendered **inside the window**, each row showing the download size, the RAM it needs, and whether it is experimental or supports vision. Pick one from the dropdown and click download. |
+| **Where models are stored** | Fixed by the installer prompt | **You choose the folder.** Type a path or open a native folder picker; the default location is pre-filled. Handy for putting a 70 GB model on a second SSD. |
+| **Download progress** | Console output | Progress is shown in the window. When the download finishes the app loads the model by itself and moves on to the main screen — no console window stays open. |
+| **Share on your LAN** | `--host 0.0.0.0 --api-key <secret>` on the command line | A **Share model** card: flip one switch and the app listens on `0.0.0.0:8080`, generates a random API key, and lists every reachable LAN address. |
+| **Share remotely (Tailscale)** | Manual network setup | The same card detects a running Tailscale client and shows the `100.64.0.0/10` peer address, so a machine on another network can use the model through the OpenAI-compatible API. |
+| **API key handling** | You invent and type it | Generated automatically, shown in a read-only field, with **Copy** and **Regenerate** buttons. Local loopback (`127.0.0.1` / `::1`) stays key-free; every other host must send the key, and the `Host` header is validated to block DNS-rebinding attacks. |
+| **First run** | Console prompts | A graphical wizard. If no model is found on disk it waits in the window for you to pick and download one; if models are found it starts loading them straight away. |
+| **Startup feel** | A console window while 35-55 GB loads | A loading page is shown immediately, then the main window, so the app never looks frozen while the model is being loaded. |
+| **Switching models** | Re-run the installer | **Switch model** from the About page card or the tray-icon context menu. The old model is unloaded in the background and the new one is loaded — the window and the process stay alive. |
+| **Vision (image input)** | A yes/no prompt during setup | Detected automatically: when an `mmproj` file is present it is hard-linked into the model folder, the `.done` marker is filled in, and the engine is started with `--vision yes` and a 700 MiB VRAM reserve. |
+| **Updating** | `UPDATE.bat` | **Check update / Apply update / Restart service** in the ℹ panel. The GitHub Releases API is used first and the web page only as a fallback, so a blocked `github.com` does not break updating. |
+| **Launching twice** | The second run reports port 8080 in use and stops | A single-instance mutex: a second double-click just brings the existing window to the front, with no duplicate windows, tray icons or killed services. |
+| **Copying text** | Browser default | Text selection is enabled app-wide and a custom right-click menu offers **Copy** and **Select all**. |
+
+### Model management in detail
+
+The model list is not hard-coded in the page. On first launch the desktop shell calls `list_official_models()`,
+which reads `setup.MODELS` and returns, for every entry:
+
+- the model key and a short description,
+- the download size in GB,
+- the RAM it needs in GB,
+- whether it is marked experimental,
+- whether it supports vision.
+
+Those fields are what you see in the dropdown, so you can compare before committing to a 70 GB download. The
+storage folder defaults to the `data_dir` saved in your settings (falling back to `Strata-data` next to the
+program); you can edit the path by hand or use the native folder picker.
+
+### Sharing in detail
+
+The **Share model** card is shown only when the desktop bridge is available, because it needs the local backend to
+bind a port. Turning it on:
+
+1. binds the OpenAI-compatible server to `0.0.0.0:8080`,
+2. generates a random API key if none exists yet,
+3. fills the address list with the loopback address, every LAN IPv4 address, virtual-machine adapters and, when
+   Tailscale is running, the `100.64.0.0/10` peer address.
+
+Other devices then point their OpenAI-compatible client at `http://<shown-address>:8080/v1`. Requests from
+`127.0.0.1` and `::1` skip the key check so the local chat keeps working; requests from any other host must send
+`Authorization: Bearer <key>`.
 
 ## Download
 
-Windows 10 / 11, x64 → [Latest release](https://github.com/yanyiong01093/anywhere_starta/releases/latest)
+Three assets are attached to each Release. The version number in the file names changes with every Release.
 
-- **`Strata-Setup-<version>.exe`** — recommended. Installs to `%LOCALAPPDATA%\Programs\Strata` and adds a
-  Start-menu shortcut. The engine and the model are downloaded on first start.
-- **`Strata-<version>-windows-x64-green.zip`** — portable. Unzip anywhere and run `Strata.exe`.
-- **`strata-app.zip` + `SHA256.txt`** — application-layer update package. Installed clients fetch it themselves
-  when you press *Check for updates*; there is no need to download it by hand.
+| Asset | What it is | When to use it |
+| --- | --- | --- |
+| `Strata-Setup-<version>.exe` | Graphical wizard installer (Inno Setup). Installs into a folder of your choice and creates Start-menu and desktop shortcuts. | A normal first install. |
+| `Strata-<version>-windows-x64-green.zip` | Portable build. Unzip it and run `Strata.exe` from the top-level folder; nothing is written outside that folder. | No installer, or a USB stick. |
+| `strata-app.zip` + `SHA256.txt` | Application-layer update package (no `Strata.exe`, no `_internal/`). | Downloaded automatically by the built-in updater; you rarely need it by hand. |
 
-Large files (engine, model) come from official sources at first start; they are not bundled in the download.
+You do **not** need Git or Python: a portable Python runtime is inside the package. The engine binary (CUDA and
+non-CUDA variants) and the model weights are downloaded on first run from the official sources, so they are not
+part of these archives.
 
 ## Requirements
 
 | | |
 | --- | --- |
-| GPU | NVIDIA GeForce RTX 20 / 30 / 40 / 50 series, **12 GB VRAM or more** |
-| RAM | 32 GB or more; 64 GB runs every model size |
-| Disk | About 80 GB free, SSD preferred |
-| OS | Windows 10 / 11, x64 |
-
-Linux and macOS use the upstream project's `setup.sh`; this desktop build is Windows-only.
+| **System** | Windows 10 / 11, 64-bit. |
+| **Graphics card** | NVIDIA GeForce RTX 20 / 30 / 40 / 50 series; an RTX 2080 Ti is confirmed working. The engine ships CUDA and non-CUDA variants and picks the right one. |
+| **RAM** | 32 GB or more. 64 GB runs every model size. |
+| **Disk** | About 80 GB free for the default model; the largest sizes need considerably more. An SSD makes the first start much faster. |
 
 ## Where things come from
 
-- Engine binaries and model files: official upstream releases (`Niko1221/Strata`), downloaded on first start.
-- Application layer (`desktop/`, `serve/web/`): built in this project and delivered as `strata-app.zip`.
-- Update feed: this repository's GitHub Releases, read through the GitHub API with a web fallback.
-
-> The app-only update package never replaces `Strata.exe`. A new launcher requires reinstalling from the latest
-> installer.
+- **This repository** only hosts the application-layer update packages in its Releases.
+- **The engine** is downloaded from the upstream official source or mirror by `setup.py`.
+- **The model weights** come from the same official sources. Nothing large is bundled in this repository.
 
 ## License
 
-The engine and its source follow the upstream project's license; the desktop layer is distributed under the same
-terms.
+Upstream Strata is MIT-licensed. This distribution repository only repackages the desktop client layer; see the
+[upstream repository](https://github.com/Niko1221/Strata) for the engine and model licenses.
 
 ---
 
 ## 简体中文
 
-**[English](#strata-desktop)** · 简体中文
+[English](#strata-desktop) · **简体中文**
 
-这是 **[Strata](https://github.com/Niko1221/Strata)** 的 Windows 桌面客户端。Strata 是一个开源引擎，能在普通游戏电脑上
-运行 1250 亿参数的大模型。引擎本身来自上游项目，本仓库提供桌面外壳、Windows 安装包和更新通道。
+[Strata](https://github.com/Niko1221/Strata) 的 Windows 桌面客户端。本仓库是**应用层分发**通道：每个 Release 里放的
+是应用更新包（`strata-app.zip` + `SHA256.txt`），已安装的客户端检查更新时会下载覆盖。引擎二进制和模型权重仍由
+`setup.py` 从上游官方源下载。
 
-## 桌面客户端新增了什么
+上游 Strata 是命令行驱动的 —— `START-HERE.bat` / `./setup.sh` 在控制台里问答，共享要靠命令行参数开启。本客户端
+沿用同一个引擎，但把这些步骤搬到了图形窗口里。
 
-| | 上游原版 | 本桌面客户端 |
+## 桌面客户端独有的特点
+
+| | 上游（命令行） | 本桌面客户端 |
 | --- | --- | --- |
-| 首次启动 | 双击 `START-HERE.bat`，在黑色命令行窗口里逐项回答问题 | 双击 `Strata.exe`：图形向导自动检测环境、下载引擎与依赖、扫描本机已有模型 |
-| 日常启动 | 再运行一次 `START-HERE.bat`，再用浏览器打开 `127.0.0.1:8080` | 双击一次即可：独立应用窗口（WebView2）+ 系统托盘图标 |
-| 模型加载期间 | 浏览器页面出来之前没有任何反馈 | 窗口立即显示加载页：当前阶段、已用时间，失败可一键重试 |
-| 重复启动 | 会再起一个 server，抢 8080 端口，两个实例互相干扰 | 单实例：把已在运行的窗口唤到前台，第二次启动直接退出 |
-| 切换模型 | 重新跑一遍安装程序 | 托盘菜单或「关于」页卡片，后台完成卸载与加载，聊天记录保留 |
-| 共享给手机 / 其他电脑 | 自己改配置、开端口、配密钥 | 一个开关：绑定 `0.0.0.0:8080`，自动生成 API Key，列出局域网 / 虚拟机 / Tailscale 地址；本机访问免密钥 |
-| 更新 | `UPDATE.bat`，依赖 git | 应用内检查 → 下载 → SHA-256 校验 → 覆盖安装；不需要 git；引擎与 Python 依赖同步更新 |
-| 视觉（看图） | 安装时作为一个问题询问 | 检测到 `mmproj` 文件后自动启用，并为编码器预留显存 |
-| 复制文字 | 取决于浏览器行为 | 所有页面都能选中文字，并提供右键菜单（复制 / 全选） |
-| 分发方式 | 源码目录 + 批处理脚本 | 安装器、绿色免安装包、应用增量包三种形态；内置便携 Python，目标机无需预装任何环境 |
+| **界面语言** | 仅英文 | **中文 / 英文**。首次启动跟随系统语言，之后随时可用 `中 / EN` 按钮切换。首启向导和主界面均为完整双语。 |
+| **选择模型** | 在 `setup.py` 里逐个回答控制台问题 | 官方模型清单直接**渲染在窗口里**，每项显示下载体积、所需内存，以及是否为实验性、是否支持视觉。下拉选一个，点下载即可。 |
+| **模型存放路径** | 由安装程序提问决定 | **可自行选择目录**。既能手动输入路径，也能调用系统原生目录选择器，默认位置已预填。适合把 70 GB 的模型放到第二块 SSD。 |
+| **下载进度** | 控制台输出 | 窗口内显示进度。下载完成后程序自动加载模型并进入主界面，不会一直挂着控制台窗口。 |
+| **局域网共享** | 命令行 `--host 0.0.0.0 --api-key <secret>` | **共享模型**卡片：打开一个开关，服务监听 `0.0.0.0:8080`，自动生成随机 API Key，并列出所有可访问的局域网地址。 |
+| **远程共享（Tailscale）** | 需自行配置网络 | 同一张卡片会探测正在运行的 Tailscale 客户端，并显示 `100.64.0.0/10` 对等地址，其他网络上的机器即可通过 OpenAI 兼容 API 使用该模型。 |
+| **API Key 处理** | 自己编、自己输 | 自动生成，显示在只读输入框里，带**复制**和**重新生成**按钮。本机回环（`127.0.0.1` / `::1`）免鉴权；其他来源必须携带 Key，同时校验 `Host` 头以防 DNS 重绑定攻击。 |
+| **首次启动** | 控制台问答 | 图形化向导。本机找不到模型时在窗口里等待你选择并下载；找到模型则直接开始加载。 |
+| **启动观感** | 加载 35-55 GB 期间只有一个控制台窗口 | 先立即显示加载进度页，再进入主界面，加载期间程序不会看起来像卡死。 |
+| **切换模型** | 重新运行安装程序 | 在 About 页的「切换模型」卡片或托盘右键菜单里切换。旧模型后台卸载、新模型后台加载，窗口和进程全程不关闭。 |
+| **视觉（图片输入）** | 安装时询问是/否 | 自动识别：检测到 `mmproj` 文件就硬链接进模型目录、补全 `.done` 标记，并以 `--vision yes` 加 700 MiB 显存预留启动引擎。 |
+| **更新** | `UPDATE.bat` | ℹ 面板里的**检查更新 / 应用更新 / 重启服务**。优先走 GitHub Releases API，网页访问仅作兜底，`github.com` 被阻断也不会导致更新失效。 |
+| **重复启动** | 第二次运行提示 8080 端口被占用后退出 | 单实例互斥锁：再次双击只会把已有窗口带到前台，不会出现多窗口、多托盘图标，也不会杀掉已有服务。 |
+| **复制文字** | 浏览器默认行为 | 全局启用文本选择，并提供自定义右键菜单，支持**复制**和**全选**。 |
+
+### 模型管理细节
+
+模型清单不是写死在页面里的。首启时桌面外壳调用 `list_official_models()`，它读取 `setup.MODELS` 并为每个条目返回：
+
+- 模型 key 与简短说明，
+- 下载体积（GB），
+- 所需内存（GB），
+- 是否标记为实验性，
+- 是否支持视觉。
+
+下拉框里展示的就是这些字段，方便你在下载 70 GB 之前先做比较。存放目录默认取设置里的 `data_dir`（缺省为程序旁的
+`Strata-data`），可以手动改，也可以调用原生目录选择器。
+
+### 共享细节
+
+**共享模型**卡片只在桌面桥可用时显示，因为需要本地后端去绑定端口。打开后会：
+
+1. 把 OpenAI 兼容服务绑定到 `0.0.0.0:8080`，
+2. 若尚无 API Key 则现场随机生成一个，
+3. 地址列表填入回环地址、所有局域网 IPv4 地址、虚拟机网卡，以及 Tailscale 运行时的 `100.64.0.0/10` 对等地址。
+
+其他设备把 OpenAI 兼容客户端指向 `http://<显示的地址>:8080/v1` 即可。来自 `127.0.0.1` 和 `::1` 的请求免鉴权，
+保证本机对话不受影响；其他来源必须携带 `Authorization: Bearer <key>`。
 
 ## 下载
 
-Windows 10 / 11 x64 → [最新版本](https://github.com/yanyiong01093/anywhere_starta/releases/latest)
+每个 Release 附带三个资产。文件名里的版本号随每次发布变化。
 
-- **`Strata-Setup-<版本>.exe`** —— 推荐。安装到 `%LOCALAPPDATA%\Programs\Strata`，并创建开始菜单快捷方式；
-  引擎与模型在首次启动时下载。
-- **`Strata-<版本>-windows-x64-green.zip`** —— 绿色免安装。解压到任意目录，运行 `Strata.exe` 即可。
-- **`strata-app.zip` + `SHA256.txt`** —— 应用层增量更新包。已安装的客户端在点击「检查更新」后自行下载，
-  不需要手动获取。
+| 资产 | 是什么 | 什么时候用 |
+| --- | --- | --- |
+| `Strata-Setup-<版本>.exe` | 图形向导安装器（Inno Setup）。安装到你选择的目录，并创建开始菜单和桌面快捷方式。 | 常规首次安装。 |
+| `Strata-<版本>-windows-x64-green.zip` | 绿色免安装包。解压后直接运行顶层目录里的 `Strata.exe`，不会向该目录之外写入任何东西。 | 不想安装，或放 U 盘里用。 |
+| `strata-app.zip` + `SHA256.txt` | 应用层更新包（不含 `Strata.exe`，不含 `_internal/`）。 | 由内置更新器自动下载，一般不需要手动使用。 |
 
-引擎和模型文件体积较大，均在首次启动时从官方源下载，不随安装包分发。
+**不需要**安装 Git 或 Python：包内自带便携 Python 运行时。引擎二进制（CUDA 与非 CUDA 变体）和模型权重在首次
+运行时从官方源下载，因此不包含在这些压缩包里。
 
-## 系统要求
+## 环境要求
 
 | | |
 | --- | --- |
-| 显卡 | NVIDIA GeForce RTX 20 / 30 / 40 / 50 系列，**显存 12 GB 以上** |
-| 内存 | 32 GB 以上；64 GB 可运行所有模型规格 |
-| 磁盘 | 约 80 GB 可用空间，建议 SSD |
-| 系统 | Windows 10 / 11，x64 |
+| **系统** | Windows 10 / 11，64 位。 |
+| **显卡** | NVIDIA GeForce RTX 20 / 30 / 40 / 50 系列；RTX 2080 Ti 已验证可用。引擎提供 CUDA 与非 CUDA 两种变体并自动选择。 |
+| **内存** | 32 GB 及以上。64 GB 可运行所有规格。 |
+| **硬盘** | 默认模型约需 80 GB 可用空间，最大规格会更多。使用 SSD 会让首次启动快很多。 |
 
-Linux 与 macOS 请使用上游项目的 `setup.sh`；本桌面客户端仅支持 Windows。
+## 文件来源
 
-## 各部分来源
-
-- 引擎二进制与模型文件：上游官方发布（`Niko1221/Strata`），首次启动时下载。
-- 应用层（`desktop/`、`serve/web/`）：本项目开发，通过 `strata-app.zip` 分发。
-- 更新通道：本仓库的 GitHub Releases，优先走 GitHub API，网页作为兜底。
-
-> 应用增量包不会替换 `Strata.exe`。启动器本身有更新时，需要重新下载最新安装包覆盖安装。
+- **本仓库**的 Release 里只放应用层更新包。
+- **引擎**由 `setup.py` 从上游官方源或镜像下载。
+- **模型权重**同样来自官方源，本仓库不打包任何大体积文件。
 
 ## 许可证
 
-引擎及其源码遵循上游项目的许可证；桌面层以相同条款分发。
+上游 Strata 采用 MIT 许可证。本分发仓库只重新打包桌面客户端这一层；引擎与模型各自的许可证请见
+[上游仓库](https://github.com/Niko1221/Strata)。
